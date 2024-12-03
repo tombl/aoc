@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/huh"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/pflag"
@@ -109,13 +110,13 @@ func main() {
 		}
 
 		if isatty.IsTerminal(os.Stdout.Fd()) {
-			part1, err := glamour.Render(day.Part1, "dark")
+			part1, err := glamour.Render(day.Part1, styles.AutoStyle)
 			if err != nil {
 				panic(fmt.Errorf("rendering part 1: %w", err))
 			}
 			fmt.Println(part1)
 
-			part2, err := glamour.Render(day.Part2, "dark")
+			part2, err := glamour.Render(day.Part2, styles.AutoStyle)
 			if err != nil {
 				panic(fmt.Errorf("rendering part 2: %w", err))
 			}

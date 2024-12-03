@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/huh/spinner"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func (c *Client) getCachePath(url *url.URL) string {
@@ -34,13 +36,6 @@ func (c *Client) invalidate(req *http.Request) error {
 func (c *Client) request(req *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if c.Spinner {
-		go spinner.New().
-			Type(spinner.Dots).
-			Title(fmt.Sprintf("Requesting %s", req.URL.String())).
-			Context(ctx).
-			Run()
-	}
 
 	req = req.WithContext(ctx)
 	req.AddCookie(&http.Cookie{Name: "session", Value: c.sessionCookie})
@@ -63,6 +58,19 @@ func (c *Client) request(req *http.Request) (*http.Response, error) {
 	}
 
 	if err != nil || stat.ModTime().Before(latestRelease) {
+		if c.Spinner {
+			go spinner.New().
+				Type(spinner.Dots).
+				Style(lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
+					Light: *styles.LightStyleConfig.Heading.StylePrimitive.Color,
+					Dark:  *styles.DarkStyleConfig.Heading.StylePrimitive.Color,
+				})).
+				TitleStyle(lipgloss.NewStyle()).
+				Title(fmt.Sprintf("Requesting %s", req.URL.String())).
+				Context(ctx).
+				Run()
+		}
+
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return resp, err
