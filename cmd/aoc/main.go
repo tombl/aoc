@@ -16,6 +16,7 @@ import (
 )
 
 func main() {
+	theme := huh.ThemeBase()
 	var args struct {
 		day, year int
 		part      int
@@ -67,6 +68,7 @@ func main() {
 				}
 				return nil
 			}).
+			WithTheme(theme).
 			Run()
 		if err != nil {
 			if err == huh.ErrUserAborted {
