@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,11 +18,12 @@ import (
 
 func main() {
 	theme := huh.ThemeBase()
+
 	var args struct {
-		day, year int
-		part      int
-		help      bool
-		remainder []string
+		day, year     int
+		part          int
+		help, example bool
+		remainder     []string
 	}
 
 	now := time.Now()
@@ -29,10 +31,12 @@ func main() {
 	pflag.IntVarP(&args.year, "year", "y", now.Year(), "year")
 	pflag.IntVarP(&args.part, "part", "p", 1, "part")
 	pflag.BoolVarP(&args.help, "help", "h", false, "help")
+	pflag.BoolVarP(&args.example, "example", "e", false, "get the example input (only used with a command)")
+	pflag.SetInterspersed(false)
 	pflag.Parse()
 	args.remainder = pflag.Args()
 
-	if args.help {
+	if args.help || (len(args.remainder) == 0 && (args.part != 1 || args.example)) {
 		pflag.Usage()
 		return
 	}
@@ -121,8 +125,36 @@ func main() {
 		}
 	} else {
 		cmd := exec.Command(args.remainder[0], args.remainder[1:]...)
-		cmd.Env = append(cmd.Env, fmt.Sprintf("AOC_PART=%d", args.part))
-		// cmd.Stdin = input
-		panic("not implemented")
+
+		cmd.Env = append(
+			os.Environ(),
+			fmt.Sprintf("AOC_PART=%d", args.part),
+			fmt.Sprintf("AOC_DAY=%d", args.day),
+			fmt.Sprintf("AOC_YEAR=%d", args.year),
+		)
+
+		var input io.ReadCloser
+		if args.example {
+			input, err = client.GetExample(args.year, args.day, args.part)
+		} else {
+			input, err = client.GetInput(args.year, args.day)
+		}
+		if err != nil {
+			panic(fmt.Errorf("getting input: %w", err))
+		}
+
+		cmd.Stdin = input
+		cmd.Stdout = os.Stdout
+
+		// TODO: tee stdout to a bytes.Buffer, and submit that as the answer when --submit is passed
+		// with a huh.Confirm prompt.
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			if _, ok := err.(*exec.ExitError); !ok {
+				panic(fmt.Errorf("running command: %w", err))
+			}
+		}
+		os.Exit(cmd.ProcessState.ExitCode())
 	}
 }

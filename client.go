@@ -178,6 +178,35 @@ func (c *Client) GetDay(year, day int) (*Day, error) {
 	return data, nil
 }
 
-func (c *Client) GetInput(year, day, part int) (string, error) {
-	panic("not implemented")
+func (c *Client) GetInput(year, day int) (io.ReadCloser, error) {
+	return c.Get(fmt.Sprintf("%d/day/%d/input", year, day))
+}
+
+func (c *Client) GetExample(year, day, part int) (io.ReadCloser, error) {
+	body, err := c.Get(fmt.Sprintf("%d/day/%d", year, day))
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	doc, err := goquery.NewDocumentFromReader(body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+
+	var example *goquery.Selection
+	for part > 0 {
+		part--
+		example = doc.Find(".day-desc").Eq(part).Find("pre")
+		if example.Length() > 0 {
+			break
+		}
+	}
+
+	var longest string
+	example.Each(func(i int, s *goquery.Selection) {
+		if s.Text() > longest {
+			longest = s.Text()
+		}
+	})
+	return io.NopCloser(strings.NewReader(longest)), nil
 }
