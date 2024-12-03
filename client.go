@@ -10,10 +10,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/PuerkitoBio/goquery"
 )
+
+var Timezone *time.Location = time.FixedZone("UTC-5", -5*60*60)
 
 func newRequest(method string, pathname string, body io.Reader) *http.Request {
 	req, err := http.NewRequest(method, "https://adventofcode.com/"+pathname, body)

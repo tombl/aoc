@@ -51,8 +51,8 @@ func (c *Client) request(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("checking cache file: %w", err)
 	}
 
-	now := time.Now().UTC()
-	latestRelease := now.Truncate(24 * time.Hour).Add(5 * time.Hour)
+	now := time.Now().In(Timezone)
+	latestRelease := now.Truncate(24 * time.Hour)
 	if now.Before(latestRelease) {
 		latestRelease = latestRelease.Add(-24 * time.Hour)
 	}

@@ -26,7 +26,7 @@ func main() {
 		remainder             []string
 	}
 
-	now := time.Now()
+	now := time.Now().In(aoc.Timezone)
 	pflag.IntVarP(&args.day, "day", "d", now.Day(), "day")
 	pflag.IntVarP(&args.year, "year", "y", now.Year(), "year")
 	pflag.IntVarP(&args.part, "part", "p", 1, "part")
