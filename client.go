@@ -31,7 +31,6 @@ var SessionCookieRegex = regexp.MustCompile("^(session=)?[0-9a-f]{128}$")
 type Client struct {
 	sessionCookie string
 	cacheDir      string
-	http          http.Client
 }
 
 func NewClient(sessionCookie string, cacheDir string) (*Client, error) {
@@ -42,12 +41,10 @@ func NewClient(sessionCookie string, cacheDir string) (*Client, error) {
 	if err := os.Mkdir(cacheDir, 0755); err != nil && !errors.Is(err, os.ErrExist) {
 		return nil, fmt.Errorf("creating cache directory: %w", err)
 	}
-	client := &Client{
+	return &Client{
 		sessionCookie: sessionCookie,
 		cacheDir:      cacheDir,
-	}
-	client.http.Transport = client
-	return client, nil
+	}, nil
 }
 
 func (c *Client) InvalidateUser() error {
@@ -55,7 +52,7 @@ func (c *Client) InvalidateUser() error {
 }
 
 func (c *Client) GetUser() (string, error) {
-	resp, err := c.http.Do(newGetRequest(""))
+	resp, err := c.request(newGetRequest(""))
 	if err != nil {
 		return "", err
 	}
@@ -77,7 +74,7 @@ type Day struct {
 }
 
 func (c *Client) GetDay(year, day int) (*Day, error) {
-	resp, err := c.http.Do(newGetRequest(fmt.Sprintf("%d/day/%d", year, day)))
+	resp, err := c.request(newGetRequest(fmt.Sprintf("%d/day/%d", year, day)))
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +116,7 @@ func (c *Client) GetDay(year, day int) (*Day, error) {
 }
 
 func (c *Client) GetInput(year, day int) (io.ReadCloser, error) {
-	resp, err := c.http.Do(newGetRequest(fmt.Sprintf("%d/day/%d/input", year, day)))
+	resp, err := c.request(newGetRequest(fmt.Sprintf("%d/day/%d/input", year, day)))
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +124,7 @@ func (c *Client) GetInput(year, day int) (io.ReadCloser, error) {
 }
 
 func (c *Client) GetExample(year, day, part int) (io.ReadCloser, error) {
-	resp, err := c.http.Do(newGetRequest(fmt.Sprintf("%d/day/%d", year, day)))
+	resp, err := c.request(newGetRequest(fmt.Sprintf("%d/day/%d", year, day)))
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +168,7 @@ func (c *Client) SubmitAnswer(year, day, part int, answer string) (string, error
 		strings.NewReader(data.Encode()),
 	)
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := c.http.Do(req)
+	resp, err := c.request(req)
 	if err != nil {
 		return "", err
 	}
