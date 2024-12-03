@@ -31,6 +31,8 @@ var SessionCookieRegex = regexp.MustCompile("^(session=)?[0-9a-f]{128}$")
 type Client struct {
 	sessionCookie string
 	cacheDir      string
+
+	Spinner bool
 }
 
 func NewClient(sessionCookie string, cacheDir string) (*Client, error) {

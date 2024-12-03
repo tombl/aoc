@@ -87,6 +87,7 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("creating client: %w", err))
 	}
+	client.Spinner = true
 
 	if !hasSession {
 		if err := client.InvalidateUser(); err != nil {
