@@ -78,7 +78,7 @@ func main() {
 		}
 	}
 
-	client, err := aoc.NewClient(session, aocDir)
+	client, err := aoc.NewClient(session, filepath.Join(aocDir, "cache"))
 	if err != nil {
 		panic(fmt.Errorf("creating client: %w", err))
 	}

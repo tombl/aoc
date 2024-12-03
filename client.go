@@ -1,16 +1,15 @@
 package aoc
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/PuerkitoBio/goquery"
@@ -49,24 +48,29 @@ func (c *Client) Invalidate(url string) error {
 	return nil
 }
 
-func (c *Client) Get(url string) (*goquery.Document, error) {
-	url = "adventofcode.com/" + url
+type ReadCloser struct {
+	io.Reader
+	io.Closer
+}
 
-	cacheFile := filepath.Join(c.cacheDir, url)
-	if strings.HasSuffix(url, "/") {
-		cacheFile = filepath.Join(c.cacheDir, url, "index.html")
+type CompositeCloser []io.Closer
+
+func (closers CompositeCloser) Close() error {
+	errs := make([]error, len(closers))
+	for _, closer := range closers {
+		errs = append(errs, closer.Close())
 	}
+	return errors.Join(errs...)
+}
 
-	// TODO: check if cache file is older than latest release
-	if file, err := os.Open(cacheFile); err == nil {
-		defer file.Close()
-		doc, err := goquery.NewDocumentFromReader(file)
-		if err == nil {
-			return doc, nil
-		}
+func (c *Client) Get(url string) (io.ReadCloser, error) {
+	cacheFile := strings.ReplaceAll(url, "/", "_")
+	if cacheFile == "" {
+		cacheFile = "index.html"
 	}
+	cacheFile = filepath.Join(c.cacheDir, cacheFile)
 
-	req, err := http.NewRequest("GET", "http://"+url, nil)
+	req, err := http.NewRequest("GET", "http://adventofcode.com/"+url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -74,41 +78,36 @@ func (c *Client) Get(url string) (*goquery.Document, error) {
 	req.AddCookie(&http.Cookie{Name: "session", Value: c.sessionCookie})
 	req.Header.Set("User-Agent", "github.com/tombl/aoc")
 
+	if file, err := os.Open(cacheFile); err == nil {
+		now := time.Now().UTC()
+		latestRelease := now.Truncate(24 * time.Hour).Add(5 * time.Hour)
+		if now.Before(latestRelease) {
+			latestRelease = latestRelease.Add(-24 * time.Hour)
+		}
+
+		if info, err := file.Stat(); err == nil && info.ModTime().After(latestRelease) {
+			return file, nil
+		}
+	}
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	file, err := os.Create(cacheFile)
 	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
+		return nil, fmt.Errorf("creating cache file: %w", err)
 	}
 
-	body := bytes.NewBuffer(bodyBytes)
-	doc, err := goquery.NewDocumentFromReader(body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing response: %w", err)
-	}
-
-	body = bytes.NewBuffer(bodyBytes)
-	resp.Body = io.NopCloser(body)
-	data, err := httputil.DumpResponse(resp, true)
-	if err != nil {
-		return nil, fmt.Errorf("dumping response: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(cacheFile), 0755); err != nil {
-		return nil, fmt.Errorf("creating cache directory: %w", err)
-	}
-	if err := os.WriteFile(cacheFile, data, 0644); err != nil {
-		return nil, fmt.Errorf("writing cache file: %w", err)
-	}
-
-	return doc, nil
+	return ReadCloser{
+		io.TeeReader(resp.Body, file),
+		CompositeCloser{resp.Body, file},
+	}, nil
 }
 
 func (c *Client) InvalidateUser() error {
@@ -116,9 +115,14 @@ func (c *Client) InvalidateUser() error {
 }
 
 func (c *Client) GetUser() (string, error) {
-	doc, err := c.Get("")
+	body, err := c.Get("")
 	if err != nil {
 		return "", err
+	}
+	defer body.Close()
+	doc, err := goquery.NewDocumentFromReader(body)
+	if err != nil {
+		return "", fmt.Errorf("parsing response: %w", err)
 	}
 
 	return doc.Find(".user").Text(), nil
@@ -133,9 +137,14 @@ type Day struct {
 }
 
 func (c *Client) GetDay(year, day int) (*Day, error) {
-	doc, err := c.Get(fmt.Sprintf("%d/day/%d", year, day))
+	body, err := c.Get(fmt.Sprintf("%d/day/%d", year, day))
 	if err != nil {
 		return nil, err
+	}
+	defer body.Close()
+	doc, err := goquery.NewDocumentFromReader(body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
 	}
 
 	data := &Day{}
