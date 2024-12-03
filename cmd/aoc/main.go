@@ -20,10 +20,9 @@ func main() {
 	theme := huh.ThemeBase()
 
 	var args struct {
-		day, year     int
-		part          int
-		help, example bool
-		remainder     []string
+		day, year, part       int
+		help, example, submit bool
+		remainder             []string
 	}
 
 	now := time.Now()
@@ -32,11 +31,14 @@ func main() {
 	pflag.IntVarP(&args.part, "part", "p", 1, "part")
 	pflag.BoolVarP(&args.help, "help", "h", false, "help")
 	pflag.BoolVarP(&args.example, "example", "e", false, "get the example input (only used with a command)")
+	pflag.BoolVarP(&args.submit, "submit", "s", false, "submit the output of the command as the answer")
 	pflag.SetInterspersed(false)
 	pflag.Parse()
 	args.remainder = pflag.Args()
 
-	if args.help || (len(args.remainder) == 0 && (args.part != 1 || args.example)) {
+	if args.help ||
+		(len(args.remainder) == 0 && (args.example || args.submit)) ||
+		(args.example && args.submit) {
 		pflag.Usage()
 		return
 	}
@@ -61,7 +63,7 @@ func main() {
 	session := strings.Trim(string(sessionBytes), "\n ")
 
 	if !hasSession {
-		err := huh.
+		if err := huh.
 			NewInput().
 			Title("Enter your session cookie for adventofcode.com").
 			EchoMode(huh.EchoModePassword).
@@ -73,8 +75,7 @@ func main() {
 				return nil
 			}).
 			WithTheme(theme).
-			Run()
-		if err != nil {
+			Run(); err != nil {
 			if err == huh.ErrUserAborted {
 				os.Exit(1)
 			}
@@ -144,17 +145,49 @@ func main() {
 		}
 
 		cmd.Stdin = input
-		cmd.Stdout = os.Stdout
-
-		// TODO: tee stdout to a bytes.Buffer, and submit that as the answer when --submit is passed
-		// with a huh.Confirm prompt.
 		cmd.Stderr = os.Stderr
 
+		var stdout strings.Builder
+		cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
+
 		if err := cmd.Run(); err != nil {
-			if _, ok := err.(*exec.ExitError); !ok {
+			if exit, ok := err.(*exec.ExitError); ok {
+				os.Exit(exit.ExitCode())
+			} else {
 				panic(fmt.Errorf("running command: %w", err))
 			}
 		}
-		os.Exit(cmd.ProcessState.ExitCode())
+
+		if args.submit {
+			answer := strings.TrimSpace(stdout.String())
+			shouldSubmit := false
+			if err := huh.NewConfirm().
+				Title("Submit answer?").
+				Description(answer).
+				Affirmative("Submit").
+				Negative("Cancel").
+				Value(&shouldSubmit).
+				WithTheme(theme).
+				Run(); err != nil {
+				if err == huh.ErrUserAborted {
+					os.Exit(1)
+				}
+				panic(fmt.Errorf("requesting confirmation: %w", err))
+			}
+
+			if shouldSubmit {
+				result, err := client.SubmitAnswer(args.year, args.day, args.part, answer)
+				if err != nil {
+					panic(fmt.Errorf("submitting answer: %w", err))
+				}
+				fmt.Println(result)
+
+				if !strings.Contains(result, "That's the right answer") {
+					os.Exit(1)
+				}
+			} else {
+				os.Exit(1)
+			}
+		}
 	}
 }

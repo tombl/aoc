@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
@@ -151,4 +153,34 @@ func (c *Client) GetExample(year, day, part int) (io.ReadCloser, error) {
 		}
 	})
 	return io.NopCloser(strings.NewReader(longest)), nil
+}
+
+func (c *Client) SubmitAnswer(year, day, part int, answer string) (string, error) {
+	if err := c.InvalidateDay(year, day); err != nil {
+		return "", fmt.Errorf("invalidating day: %w", err)
+	}
+
+	data := url.Values{
+		"level":  {strconv.Itoa(part)},
+		"answer": {answer},
+	}
+
+	req := newRequest(
+		http.MethodPost,
+		fmt.Sprintf("%d/day/%d/answer", year, day),
+		strings.NewReader(data.Encode()),
+	)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("parsing response: %w", err)
+	}
+
+	return doc.Find("main").Text(), nil
 }
