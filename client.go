@@ -6,20 +6,30 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/PuerkitoBio/goquery"
 )
+
+func newRequest(method string, pathname string, body io.Reader) *http.Request {
+	req, err := http.NewRequest(method, "https://adventofcode.com/"+pathname, body)
+	if err != nil {
+		panic(err)
+	}
+	return req
+}
+func newGetRequest(pathname string) *http.Request {
+	return newRequest(http.MethodGet, pathname, nil)
+}
 
 var SessionCookieRegex = regexp.MustCompile("^(session=)?[0-9a-f]{128}$")
 
 type Client struct {
 	sessionCookie string
 	cacheDir      string
+	http          http.Client
 }
 
 func NewClient(sessionCookie string, cacheDir string) (*Client, error) {
@@ -30,97 +40,25 @@ func NewClient(sessionCookie string, cacheDir string) (*Client, error) {
 	if err := os.Mkdir(cacheDir, 0755); err != nil && !errors.Is(err, os.ErrExist) {
 		return nil, fmt.Errorf("creating cache directory: %w", err)
 	}
-	return &Client{
+	client := &Client{
 		sessionCookie: sessionCookie,
 		cacheDir:      cacheDir,
-	}, nil
-}
-
-func (c *Client) Invalidate(url string) error {
-	url = "adventofcode.com/" + url
-	cacheFile := filepath.Join(c.cacheDir, url)
-	if strings.HasSuffix(url, "/") {
-		cacheFile = filepath.Join(c.cacheDir, url, "index.html")
 	}
-	if err := os.Remove(cacheFile); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("removing cache file: %w", err)
-	}
-	return nil
-}
-
-type ReadCloser struct {
-	io.Reader
-	io.Closer
-}
-
-type CompositeCloser []io.Closer
-
-func (closers CompositeCloser) Close() error {
-	errs := make([]error, len(closers))
-	for _, closer := range closers {
-		errs = append(errs, closer.Close())
-	}
-	return errors.Join(errs...)
-}
-
-func (c *Client) Get(url string) (io.ReadCloser, error) {
-	cacheFile := strings.ReplaceAll(url, "/", "_")
-	if cacheFile == "" {
-		cacheFile = "index.html"
-	}
-	cacheFile = filepath.Join(c.cacheDir, cacheFile)
-
-	req, err := http.NewRequest("GET", "http://adventofcode.com/"+url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-
-	req.AddCookie(&http.Cookie{Name: "session", Value: c.sessionCookie})
-	req.Header.Set("User-Agent", "github.com/tombl/aoc")
-
-	if file, err := os.Open(cacheFile); err == nil {
-		now := time.Now().UTC()
-		latestRelease := now.Truncate(24 * time.Hour).Add(5 * time.Hour)
-		if now.Before(latestRelease) {
-			latestRelease = latestRelease.Add(-24 * time.Hour)
-		}
-
-		if info, err := file.Stat(); err == nil && info.ModTime().After(latestRelease) {
-			return file, nil
-		}
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("sending request: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	file, err := os.Create(cacheFile)
-	if err != nil {
-		return nil, fmt.Errorf("creating cache file: %w", err)
-	}
-
-	return ReadCloser{
-		io.TeeReader(resp.Body, file),
-		CompositeCloser{resp.Body, file},
-	}, nil
+	client.http.Transport = client
+	return client, nil
 }
 
 func (c *Client) InvalidateUser() error {
-	return c.Invalidate("")
+	return c.invalidate(newGetRequest(""))
 }
 
 func (c *Client) GetUser() (string, error) {
-	body, err := c.Get("")
+	resp, err := c.http.Do(newGetRequest(""))
 	if err != nil {
 		return "", err
 	}
-	defer body.Close()
-	doc, err := goquery.NewDocumentFromReader(body)
+	defer resp.Body.Close()
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("parsing response: %w", err)
 	}
@@ -129,7 +67,7 @@ func (c *Client) GetUser() (string, error) {
 }
 
 func (c *Client) InvalidateDay(year, day int) error {
-	return c.Invalidate(fmt.Sprintf("%d/day/%d", year, day))
+	return c.invalidate(newGetRequest(fmt.Sprintf("%d/day/%d", year, day)))
 }
 
 type Day struct {
@@ -137,12 +75,12 @@ type Day struct {
 }
 
 func (c *Client) GetDay(year, day int) (*Day, error) {
-	body, err := c.Get(fmt.Sprintf("%d/day/%d", year, day))
+	resp, err := c.http.Do(newGetRequest(fmt.Sprintf("%d/day/%d", year, day)))
 	if err != nil {
 		return nil, err
 	}
-	defer body.Close()
-	doc, err := goquery.NewDocumentFromReader(body)
+	defer resp.Body.Close()
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("parsing response: %w", err)
 	}
@@ -179,16 +117,20 @@ func (c *Client) GetDay(year, day int) (*Day, error) {
 }
 
 func (c *Client) GetInput(year, day int) (io.ReadCloser, error) {
-	return c.Get(fmt.Sprintf("%d/day/%d/input", year, day))
-}
-
-func (c *Client) GetExample(year, day, part int) (io.ReadCloser, error) {
-	body, err := c.Get(fmt.Sprintf("%d/day/%d", year, day))
+	resp, err := c.http.Do(newGetRequest(fmt.Sprintf("%d/day/%d/input", year, day)))
 	if err != nil {
 		return nil, err
 	}
-	defer body.Close()
-	doc, err := goquery.NewDocumentFromReader(body)
+	return resp.Body, nil
+}
+
+func (c *Client) GetExample(year, day, part int) (io.ReadCloser, error) {
+	resp, err := c.http.Do(newGetRequest(fmt.Sprintf("%d/day/%d", year, day)))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("parsing response: %w", err)
 	}
